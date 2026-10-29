@@ -1,0 +1,31 @@
+# The anchors repository's heartbeat (lockrun, deploy/DISASTER_RECOVERY.md, section 5): hourly, on GitHub's
+# scheduler, independent of the service and the operator droplet. When no deposit landed in the last hour,
+# .github/anchors_heartbeat.py appends a heartbeat naming each log's last heads; this job commits and
+# pushes it as a plain fast-forward (never forced). No third-party action: git and python3 only.
+name: anchors heartbeat
+on:
+  schedule:
+    - cron: '30 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: anchors-heartbeat
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: append a heartbeat when no deposit landed in the last hour
+        env:
+          TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git clone -q --branch main "https://x-access-token:${TOKEN}@github.com/${REPO}.git" anchors
+          cd anchors
+          python3 .github/anchors_heartbeat.py anchors.jsonl
+          if ! git diff --quiet -- anchors.jsonl; then
+            git -c user.name=lockrun-heartbeat -c user.email=lockrun-heartbeat@localhost commit -q -m "heartbeat $(date -u +%Y-%m-%dT%H:%M:%SZ): no deposit received" -- anchors.jsonl
+            git push -q origin HEAD:refs/heads/main
+          fi
